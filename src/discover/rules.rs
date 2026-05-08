@@ -757,6 +757,15 @@ pub const RULES: &[RtkRule] = &[
         ..RtkRule::DEFAULT
     },
     RtkRule {
+        pattern: r"^gradlew?\b",
+        rtk_cmd: "rtk gradlew",
+        rewrite_prefixes: &["gradlew", "gradle"],
+        category: "Build",
+        savings_pct: 75.0,
+        subcmd_savings: &[],
+        subcmd_status: &[],
+    },
+    RtkRule {
         pattern: r"^markdownlint\b",
         rtk_cmd: "rtk markdownlint",
         rewrite_prefixes: &["markdownlint"],
