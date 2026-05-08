@@ -1,22 +1,69 @@
 [filters.gradle]
-description = "Compact Gradle build output — strip progress, keep tasks and errors"
-match_command = "^(gradle|gradlew|\\./)gradlew?\\b"
+description = "Compact Gradle build output — strip progress, keep tasks and errors (Android-aware)"
+match_command = "^(gradle|gradlew)\\b"
 strip_ansi = true
 strip_lines_matching = [
+  # blank lines
   "^\\s*$",
+  # gradle lifecycle noise
   "^> Configuring project",
   "^> Resolving dependencies",
   "^> Transform ",
   "^Download(ing)?\\s+http",
   "^\\s*<-+>\\s*$",
+  "^Starting a Gradle Daemon",
+  "^Daemon will be stopped",
+  "^Deprecated Gradle features were used",
+  "^Use '--warning-mode all'",
+  "^See the profiling report at:",
+  "^Profiling report saved to",
+  # skipped / cached tasks
   "^> Task :.*UP-TO-DATE$",
   "^> Task :.*NO-SOURCE$",
   "^> Task :.*FROM-CACHE$",
-  "^Starting a Gradle Daemon",
-  "^Daemon will be stopped",
+  "^> Task :.*SKIPPED$",
+  # android build noise — routine tasks that add no signal
+  "^> Configure project",
+  "^> Task :.*:check[A-Z]",
+  "^> Task :.*:process.*Manifest",
+  "^> Task :.*:process.*Resources",
+  "^> Task :.*:process.*Assets",
+  "^> Task :.*:process.*JavaRes",
+  "^> Task :.*:merge.*Resources",
+  "^> Task :.*:merge.*Assets",
+  "^> Task :.*:merge.*NativeLibs",
+  "^> Task :.*:merge.*Shaders",
+  "^> Task :.*:merge.*JniLibFolders",
+  "^> Task :.*:merge.*JavaResource",
+  "^> Task :.*:mergeDex",
+  "^> Task :.*:generate.*",
+  "^> Task :.*:map.*SourceSetPaths",
+  "^> Task :.*:create.*ApkListingFileRedirect",
+  "^> Task :.*:write.*",
+  "^> Task :.*:parse.*",
+  "^> Task :.*:extract.*",
+  "^> Task :.*:copy.*",
+  "^> Task :.*:compress.*",
+  "^> Task :.*:strip.*",
+  "^> Task :.*:validate.*",
+  "^> Task :.*:desugar.*",
+  "^> Task :.*:bundle.*Classes",
+  "^> Task :.*:javaPreCompile",
+  "^> Task :.*:compile.*Shaders$",
+  "^> Task :.*:compile.*Sources$",
+  "^> Task :.*:lintVital",
+  "^> Task :.*:preBuild$",
+  "^> Task :.*:preDebugBuild$",
+  "^> Task :.*:preReleaseBuild$",
+  "^> Task :.*:pre[A-Z].*Build$",
+  # kotlin/java compiler noise
+  "^w: ",
+  "^Note:.*uses? (unchecked or unsafe|or overrides)",
+  "^Note: Recompile with -Xlint",
+  "^\\d+ warning[s]?$",
 ]
-truncate_lines_at = 150
-max_lines = 50
+truncate_lines_at = 200
+max_lines = 150
 on_empty = "gradle: ok"
 
 [[tests.gradle]]
@@ -33,3 +80,23 @@ expected = "BUILD SUCCESSFUL in 8s\n7 actionable tasks: 7 executed"
 name = "empty after stripping"
 input = "> Configuring project :app\n"
 expected = "gradle: ok"
+
+[[tests.gradle]]
+name = "android assemble — strips routine tasks, keeps compile and result"
+input = "> Task :app:preBuild\n> Task :app:preOfficialDebugBuild\n> Task :app:checkOfficialDebugAarMetadata\n> Task :app:generateOfficialDebugBuildConfig\n> Task :app:processOfficialDebugManifest\n> Task :app:mergeOfficialDebugResources\n> Task :app:compileOfficialDebugJavaWithJavac\n> Task :app:compileOfficialDebugKotlin\n> Task :app:assembleOfficialDebug\n\nBUILD SUCCESSFUL in 43s\n12 actionable tasks: 8 executed, 4 up-to-date"
+expected = "> Task :app:compileOfficialDebugJavaWithJavac\n> Task :app:compileOfficialDebugKotlin\n> Task :app:assembleOfficialDebug\nBUILD SUCCESSFUL in 43s\n12 actionable tasks: 8 executed, 4 up-to-date"
+
+[[tests.gradle]]
+name = "android compile error — keeps error output"
+input = "> Task :app:compileOfficialDebugJavaWithJavac FAILED\n\nFAILURE: Build failed with an exception.\n\n* What went wrong:\nExecution failed for task ':app:compileOfficialDebugJavaWithJavac'.\n> Compilation failed; see the compiler error output for details.\n\n* Try:\nRun with --info or --debug option to get more log output.\n\nBUILD FAILED in 18s"
+expected = "> Task :app:compileOfficialDebugJavaWithJavac FAILED\nFAILURE: Build failed with an exception.\n* What went wrong:\nExecution failed for task ':app:compileOfficialDebugJavaWithJavac'.\n> Compilation failed; see the compiler error output for details.\n* Try:\nRun with --info or --debug option to get more log output.\nBUILD FAILED in 18s"
+
+[[tests.gradle]]
+name = "strips kotlin warnings and javac notes"
+input = "> Task :app:compileOfficialDebugKotlin\nw: file:///src/main/java/Foo.kt: (12, 5): Variable 'x' is never used\nw: warning: some other warning\nNote: Some input files use unchecked or unsafe operations.\nNote: Recompile with -Xlint:unchecked for details.\n\nBUILD SUCCESSFUL in 22s"
+expected = "> Task :app:compileOfficialDebugKotlin\nBUILD SUCCESSFUL in 22s"
+
+[[tests.gradle]]
+name = "android full task sequence — only compile/assemble/package survive"
+input = "> Task :app:preBuild\n> Task :app:preOfficialDebugBuild\n> Task :app:checkOfficialDebugAarMetadata\n> Task :app:generateOfficialDebugBuildConfig\n> Task :app:generateOfficialDebugResources\n> Task :app:generateOfficialDebugAssets\n> Task :app:processOfficialDebugManifest\n> Task :app:mergeOfficialDebugResources\n> Task :app:mergeOfficialDebugJavaResource\n> Task :app:processOfficialDebugJavaRes\n> Task :app:javaPreCompileOfficialDebug\n> Task :app:compileOfficialDebugKotlin\n> Task :app:compileOfficialDebugJavaWithJavac\n> Task :app:compileOfficialDebugSources\n> Task :app:lintVitalAnalyzeOfficialDebug\n> Task :app:desugarOfficialDebugFileDependencies\n> Task :app:mergeDexOfficialDebug\n> Task :app:bundleOfficialDebugClassesToCompileJar\n> Task :app:validateSigningOfficialDebug\n> Task :app:packageOfficialDebug\n> Task :app:createOfficialDebugApkListingFileRedirect\n> Task :app:assembleOfficialDebug\n\nBUILD SUCCESSFUL in 55s\n22 actionable tasks: 18 executed, 4 up-to-date"
+expected = "> Task :app:compileOfficialDebugKotlin\n> Task :app:compileOfficialDebugJavaWithJavac\n> Task :app:packageOfficialDebug\n> Task :app:assembleOfficialDebug\nBUILD SUCCESSFUL in 55s\n22 actionable tasks: 18 executed, 4 up-to-date"
