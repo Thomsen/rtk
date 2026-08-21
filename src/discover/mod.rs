@@ -5,6 +5,7 @@ pub mod provider;
 pub mod registry;
 mod report;
 pub mod rules;
+mod rules_dev;
 
 use anyhow::Result;
 use std::collections::HashMap;

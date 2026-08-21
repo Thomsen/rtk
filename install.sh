@@ -1,12 +1,14 @@
 #!/usr/bin/env sh
-# rtk installer - https://github.com/rtk-ai/rtk
-# Usage: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
+# rtk installer - https://github.com/Thomsen/rtk
+# Usage: curl -fsSL https://raw.githubusercontent.com/Thomsen/rtk/refs/heads/dev/install.sh | sh
 
 set -e
 
-REPO="rtk-ai/rtk"
+REPO="Thomsen/rtk"
+BRANCH="${RTK_BRANCH:-dev}"
 BINARY_NAME="rtk"
 INSTALL_DIR="${RTK_INSTALL_DIR:-$HOME/.local/bin}"
+BUILD_FROM_SOURCE=0
 
 # Colors
 RED='\033[0;31m'
@@ -51,7 +53,7 @@ detect_arch() {
 get_latest_version() {
     # Try the web redirect first — does not count against the API rate limit.
     VERSION=$(curl -sI "https://github.com/${REPO}/releases/latest" \
-        | grep -i '^location:' \
+        | grep -i '^location:.*\/tag/' \
         | sed -E 's|.*/tag/([^[:space:]]+).*|\1|' \
         | tr -d '\r')
 
@@ -64,7 +66,8 @@ get_latest_version() {
     fi
 
     if [ -z "$VERSION" ]; then
-        error "Failed to get latest version (GitHub API may be rate-limited; set RTK_VERSION=vX.Y.Z to pin)"
+        warn "No release found; installing from the ${BRANCH} branch instead."
+        BUILD_FROM_SOURCE=1
     fi
 }
 
@@ -149,6 +152,28 @@ install() {
     info "Successfully installed ${BINARY_NAME} to ${INSTALL_DIR}/${BINARY_NAME}"
 }
 
+# Build and install from this repository when no prebuilt release is available.
+install_from_source() {
+    if ! command -v cargo >/dev/null 2>&1; then
+        error "cargo is required to install from source: https://rustup.rs"
+    fi
+
+    TEMP_DIR=$(mktemp -d)
+    info "Building from: https://github.com/${REPO} (branch: ${BRANCH})"
+    cargo install \
+        --git "https://github.com/${REPO}" \
+        --branch "$BRANCH" \
+        --locked \
+        --root "$TEMP_DIR"
+
+    mkdir -p "$INSTALL_DIR"
+    mv "${TEMP_DIR}/bin/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
+    chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
+    rm -rf "$TEMP_DIR"
+
+    info "Successfully installed ${BINARY_NAME} to ${INSTALL_DIR}/${BINARY_NAME}"
+}
+
 # Verify installation
 verify() {
     INSTALLED_BIN="${INSTALL_DIR}/${BINARY_NAME}"
@@ -175,7 +200,11 @@ main() {
     else
         get_latest_version
     fi
-    install
+    if [ "$BUILD_FROM_SOURCE" = "1" ]; then
+        install_from_source
+    else
+        install
+    fi
     verify
 
     echo ""

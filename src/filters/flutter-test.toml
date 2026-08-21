@@ -18,7 +18,7 @@ strip_lines_matching = [
   "^\\[\\+\\d+ ms\\] ",
 ]
 match_output = [
-  { pattern = "All tests passed!", message = "ok flutter test: all passed" },
+  { pattern = "All tests passed!$", message = "ok flutter test: all passed", unless = "Some tests failed|\\[E\\]" },
 ]
 max_lines = 80
 
@@ -62,10 +62,10 @@ This will become an error in a future version of Flutter.
 00:00 +1 -1: test/auth_test.dart: login fails [E]
   Expected: true
     Actual: false
-  
+
   package:test_api            expect
   test/auth_test.dart 12:5    main.<fn>
-  
+
 00:00 +1 -1: test/widget_test.dart: another pass
 00:00 +2 -1: Some tests failed.
 Failing tests:
