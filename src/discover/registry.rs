@@ -10,6 +10,7 @@ use super::lexer::{
     redirect_has_file_target, shell_split, split_on_operators, tokenize, tokenize_with_newlines,
 };
 use super::rules::{IGNORED_EXACT, IGNORED_PREFIXES, RULES, RtkRule};
+use super::rules_dev::DEV_RULES;
 
 const PHP_TOOL_NAMES: [&str; 6] = ["phpunit", "phpstan", "ecs", "pest", "paratest", "pint"];
 
@@ -51,11 +52,13 @@ pub fn category_avg_tokens(category: &str, subcmd: &str) -> usize {
     }
 }
 
+static ALL_RULES: LazyLock<Vec<&'static RtkRule>> =
+    LazyLock::new(|| RULES.iter().chain(DEV_RULES.iter()).collect());
 static REGEX_SET: LazyLock<RegexSet> = LazyLock::new(|| {
-    RegexSet::new(RULES.iter().map(|r| r.pattern)).expect("invalid regex patterns")
+    RegexSet::new(ALL_RULES.iter().map(|r| r.pattern)).expect("invalid regex patterns")
 });
 static COMPILED: LazyLock<Vec<Regex>> = LazyLock::new(|| {
-    RULES
+    ALL_RULES
         .iter()
         .map(|r| Regex::new(r.pattern).expect("invalid regex"))
         .collect()
@@ -247,7 +250,7 @@ pub fn classify_command(cmd: &str) -> Classification {
     // Fast check with RegexSet — take the last (most specific) match
     let matches: Vec<usize> = REGEX_SET.matches(cmd_clean).into_iter().collect();
     if let Some(&idx) = matches.last() {
-        let rule = &RULES[idx];
+        let rule = ALL_RULES[idx];
 
         // Extract subcommand for savings override and status detection
         let (savings, status) = if let Some(caps) = COMPILED[idx].captures(cmd_clean) {
@@ -1752,7 +1755,10 @@ fn rewrite_segment_inner(
     };
 
     // Find the matching rule (rtk_cmd values are unique across all rules)
-    let rule = RULES.iter().find(|r| r.rtk_cmd == rtk_equivalent)?;
+    let rule = ALL_RULES
+        .iter()
+        .copied()
+        .find(|r| r.rtk_cmd == rtk_equivalent)?;
     if context == RewriteContext::PipelineFinal
         && (!rule.pipeline_safety.final_safe() || !pipeline_command_is_safe(rule.rtk_cmd, cmd_part))
     {
@@ -1766,14 +1772,7 @@ fn rewrite_segment_inner(
         return None;
     }
 
-    // Normalize absolute/relative paths for matching: ./gradlew → gradlew, /usr/bin/grep → grep
-    // But preserve the path prefix for the rewritten command
-    let cmd_normalized = strip_absolute_path(cmd_clean);
-    let path_prefix_len = cmd_clean.len() - cmd_normalized.len();
-    let path_prefix = &cmd_clean[..path_prefix_len];
-    let cmd_for_matching = cmd_normalized.as_str();
-
-    if let Some(parts) = parse_golangci_run_parts(cmd_for_matching) {
+    if let Some(parts) = parse_golangci_run_parts(cmd_part) {
         let rewritten = if parts.global_segment.is_empty() {
             format!("rtk golangci-lint {}", parts.run_segment)
         } else {
@@ -1788,7 +1787,7 @@ fn rewrite_segment_inner(
     // #196: gh with --json/--jq/--template produces structured output that
     // rtk gh would corrupt — skip rewrite so the caller gets raw JSON.
     if rule.rtk_cmd == "rtk gh" {
-        let args_lower = cmd_for_matching.to_lowercase();
+        let args_lower = cmd_part.to_lowercase();
         if args_lower.contains("--json")
             || args_lower.contains("--jq")
             || args_lower.contains("--template")
@@ -1812,24 +1811,11 @@ fn rewrite_segment_inner(
 
     // Try each rewrite prefix (longest first) with word-boundary check
     for &prefix in rule.rewrite_prefixes {
-        if let Some(rest) = strip_word_prefix(cmd_for_matching, prefix) {
-            // For commands with path prefixes (./gradlew, /usr/bin/grep), preserve the path
-            // and use "rtk <path><cmd>" instead of "rtk_cmd <path><cmd>" to avoid duplication
-            let rewritten = if !path_prefix.is_empty() {
-                // Has path prefix: ./gradlew build → rtk ./gradlew build
-                let full_cmd_name = format!("{}{}", path_prefix, prefix);
-                if rest.is_empty() {
-                    format!("{}rtk {}{}", env_prefix, full_cmd_name, redirect_suffix)
-                } else {
-                    format!("{}rtk {} {}{}", env_prefix, full_cmd_name, rest, redirect_suffix)
-                }
+        if let Some(rest) = strip_word_prefix(strip_target, prefix) {
+            let rewritten = if rest.is_empty() {
+                format!("{}{}", rule.rtk_cmd, redirect_suffix)
             } else {
-                // No path prefix: gradle build → rtk gradlew build (using rtk_cmd)
-                if rest.is_empty() {
-                    format!("{}{}{}", env_prefix, rule.rtk_cmd, redirect_suffix)
-                } else {
-                    format!("{}{} {}{}", env_prefix, rule.rtk_cmd, rest, redirect_suffix)
-                }
+                format!("{} {}{}", rule.rtk_cmd, rest, redirect_suffix)
             };
             return Some(rewritten);
         }
@@ -2612,7 +2598,7 @@ mod tests {
 
     #[test]
     fn test_pipeline_final_safe_rule_set() {
-        let safe_rules: Vec<_> = RULES
+        let safe_rules: Vec<_> = ALL_RULES
             .iter()
             .filter(|rule| rule.pipeline_safety.final_safe())
             .map(|rule| rule.rtk_cmd)
@@ -6229,7 +6215,7 @@ mod tests {
 
     #[test]
     fn test_all_rules_are_complete() {
-        for rule in RULES {
+        for rule in ALL_RULES.iter() {
             assert!(
                 !rule.pattern.is_empty(),
                 "Rule '{}' has empty pattern",
@@ -6488,7 +6474,7 @@ mod tests {
     #[test]
     fn test_all_patterns_are_valid_regex() {
         use regex::Regex;
-        for (i, rule) in RULES.iter().enumerate() {
+        for (i, rule) in ALL_RULES.iter().enumerate() {
             assert!(
                 Regex::new(rule.pattern).is_ok(),
                 "RULES[{i}] ({}) has invalid pattern '{}'",
