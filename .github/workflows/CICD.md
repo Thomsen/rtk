@@ -56,13 +56,13 @@ Trigger: push to develop | workflow_dispatch (not master) | Concurrency: cancel-
      └────────┬──────────────────┘
               │
      ┌────────▼──────────────────┐
-     │ release.yml               │
+     │ release-dev.yml           │
      │ prerelease = true         │
      └────────┬──────────────────┘
               │
      ┌────────▼──────────────────┐
      │ Build                     │
-     │ 5 platforms + DEB + RPM   │
+     │ macOS Apple Silicon       │
      └────────┬──────────────────┘
               │
      ┌────────▼──────────────────┐

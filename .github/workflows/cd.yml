@@ -85,7 +85,7 @@ jobs:
     name: Build pre-release
     needs: pre-release
     if: needs.pre-release.outputs.tag != ''
-    uses: ./.github/workflows/release.yml
+    uses: ./.github/workflows/release-dev.yml
     with:
       tag: ${{ needs.pre-release.outputs.tag }}
       prerelease: true
