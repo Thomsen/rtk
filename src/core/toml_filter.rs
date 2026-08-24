@@ -1258,6 +1258,25 @@ strip_ansi = true
     }
 
     #[test]
+    fn test_builtin_flutter_filters_match_fvm_commands() {
+        let filters = make_filters(BUILTIN_TOML);
+        let cases = [
+            ("fvm flutter analyze", "flutter-analyze"),
+            ("fvm flutter build apk --flavor=production", "flutter-build"),
+            ("fvm flutter pub get", "flutter-pub-get"),
+            ("fvm flutter test --flavor staging", "flutter-test"),
+        ];
+
+        for (command, expected_filter) in cases {
+            assert_eq!(
+                find_filter_in(command, &filters).map(|filter| filter.name.as_str()),
+                Some(expected_filter),
+                "unexpected filter for {command:?}"
+            );
+        }
+    }
+
+    #[test]
     fn test_find_filter_no_match_returns_none() {
         let filters = make_filters(
             r#"

@@ -1,6 +1,6 @@
 [filters.flutter-pub-get]
 description = "Compact flutter pub get — strip download noise; keep summary, warnings, and hints"
-match_command = "^flutter\\s+pub\\s+(get|add|upgrade|downgrade|outdated)\\b"
+match_command = "^(?:fvm\\s+)?flutter\\s+pub\\s+(get|add|upgrade|downgrade|outdated)\\b"
 strip_ansi = true
 strip_lines_matching = [
   "^\\s*$",

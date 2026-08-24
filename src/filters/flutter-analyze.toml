@@ -1,6 +1,6 @@
 [filters.flutter-analyze]
 description = "Compact flutter analyze — strip headers, info-level issues; keep error/warning lines and summary"
-match_command = "^flutter\\s+analyze\\b"
+match_command = "^(?:fvm\\s+)?flutter\\s+analyze\\b"
 strip_ansi = true
 strip_lines_matching = [
   "^\\s*$",

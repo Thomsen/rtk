@@ -1,6 +1,6 @@
 [filters.flutter-build]
 description = "Compact flutter build — strip pub preamble, plugin warnings, tree-shaking, spinners; keep errors, wasm findings, build result"
-match_command = "^flutter\\s+build\\b"
+match_command = "^(?:fvm\\s+)?flutter\\s+build\\b"
 strip_ansi = true
 strip_lines_matching = [
   "^\\s*$",

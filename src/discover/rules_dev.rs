@@ -67,6 +67,46 @@ pub const DEV_RULES: &[RtkRule] = &[
         savings_pct: 75.0,
         ..RtkRule::DEFAULT
     },
+    RtkRule {
+        pattern: r"^fvm\s+flutter\s+pub\s+(get|add|upgrade|downgrade|outdated)\b",
+        rtk_cmd: "rtk fvm flutter pub",
+        rewrite_prefixes: &["fvm flutter pub"],
+        category: "PackageManager",
+        savings_pct: 70.0,
+        ..RtkRule::DEFAULT
+    },
+    RtkRule {
+        pattern: r"^fvm\s+flutter\s+test\b",
+        rtk_cmd: "rtk fvm flutter test",
+        rewrite_prefixes: &["fvm flutter test"],
+        category: "Build",
+        savings_pct: 75.0,
+        ..RtkRule::DEFAULT
+    },
+    RtkRule {
+        pattern: r"^fvm\s+flutter\s+analyze\b",
+        rtk_cmd: "rtk fvm flutter analyze",
+        rewrite_prefixes: &["fvm flutter analyze"],
+        category: "Build",
+        savings_pct: 75.0,
+        ..RtkRule::DEFAULT
+    },
+    RtkRule {
+        pattern: r"^fvm\s+flutter\s+build\b",
+        rtk_cmd: "rtk fvm flutter build",
+        rewrite_prefixes: &["fvm flutter build"],
+        category: "Build",
+        savings_pct: 75.0,
+        ..RtkRule::DEFAULT
+    },
+    RtkRule {
+        pattern: r"^fvm\s+flavor\b",
+        rtk_cmd: "rtk fvm flavor",
+        rewrite_prefixes: &["fvm flavor"],
+        category: "PackageManager",
+        savings_pct: 0.0,
+        ..RtkRule::DEFAULT
+    },
 ];
 
 #[cfg(test)]
@@ -99,6 +139,17 @@ mod tests {
             ("flutter test", "rtk flutter test"),
             ("flutter analyze", "rtk flutter analyze"),
             ("flutter build apk", "rtk flutter build apk"),
+            ("fvm flutter pub get", "rtk fvm flutter pub get"),
+            (
+                "fvm flutter test --flavor staging",
+                "rtk fvm flutter test --flavor staging",
+            ),
+            ("fvm flutter analyze", "rtk fvm flutter analyze"),
+            (
+                "fvm flutter build apk --flavor=production",
+                "rtk fvm flutter build apk --flavor=production",
+            ),
+            ("fvm flavor ohos", "rtk fvm flavor ohos"),
         ];
 
         for (command, expected) in cases {
