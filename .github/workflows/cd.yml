@@ -3,7 +3,7 @@ name: CD
 on:
   workflow_dispatch:
   push:
-    branches: [develop, master]
+    branches: [dev, master]
 
 concurrency:
   group: cd-${{ github.ref }}
@@ -15,12 +15,12 @@ permissions:
 
 jobs:
   # ═══════════════════════════════════════════════
-  # DEVELOP PATH: Pre-release
+  # dev PATH: Pre-release
   # ═══════════════════════════════════════════════
 
   pre-release:
     if: >-
-      github.ref == 'refs/heads/develop'
+      github.ref == 'refs/heads/dev'
       || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master')
     runs-on: ubuntu-latest
     outputs:
