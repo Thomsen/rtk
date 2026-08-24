@@ -1,0 +1,56 @@
+name: CD Dev
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+
+concurrency:
+  group: cd-dev-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Prepare dev release
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compute dev version
+        id: tag
+        run: |
+          set -euo pipefail
+
+          VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | jq -er '.packages[] | select(.name == "rtk") | .version')
+          TAG="v${VERSION}-dev.${{ github.run_number }}"
+
+          echo "Version: $VERSION"
+          echo "Pre-release tag: $TAG"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::Tag ${TAG} already exists"
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  build-prerelease:
+    name: Build dev pre-release
+    needs: prepare
+    uses: ./.github/workflows/release-dev.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      prerelease: true
+    permissions:
+      contents: write
+    secrets: inherit
