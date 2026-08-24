@@ -1,0 +1,87 @@
+name: Release Dev
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag to release'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v0.1.0-rc.1)'
+        required: true
+      prerelease:
+        description: 'Mark as pre-release'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build aarch64-apple-darwin
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Build
+        run: cargo build --release --target aarch64-apple-darwin
+        env:
+          RTK_TELEMETRY_URL: ${{ vars.RTK_TELEMETRY_URL }}
+          RTK_TELEMETRY_TOKEN: ${{ secrets.RTK_TELEMETRY_TOKEN }}
+
+      - name: Package
+        run: tar -C target/aarch64-apple-darwin/release -czf rtk-aarch64-apple-darwin.tar.gz rtk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rtk-aarch64-apple-darwin
+          path: rtk-aarch64-apple-darwin.tar.gz
+
+  release:
+    name: Create pre-release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          client-id: ${{ secrets.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rtk-aarch64-apple-darwin
+          path: release
+
+      - name: Create checksum
+        working-directory: release
+        run: sha256sum * > checksums.txt
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          files: release/*
+          prerelease: ${{ inputs.prerelease }}
+          token: ${{ steps.app-token.outputs.token }}
