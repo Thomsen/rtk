@@ -1,6 +1,6 @@
 [filters.flutter-test]
 description = "Compact flutter test output — strip pub preamble, loading lines, and blank lines; keep test results only"
-match_command = "^flutter\\s+test\\b"
+match_command = "^(?:fvm\\s+)?flutter\\s+test\\b"
 strip_ansi = true
 strip_lines_matching = [
   "^\\s*$",
