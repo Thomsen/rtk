@@ -112,6 +112,7 @@ pub const DEV_RULES: &[RtkRule] = &[
 #[cfg(test)]
 mod tests {
     use super::DEV_RULES;
+    use crate::core::toml_filter::command_matches_filter;
     use crate::discover::registry::{classify_command, rewrite_command, Classification};
     use crate::discover::rules::RULES;
 
@@ -161,6 +162,12 @@ mod tests {
                 rewrite_command(command, &[], &[]).as_deref(),
                 Some(expected)
             );
+            if command != "fvm flavor ohos" {
+                assert!(
+                    command_matches_filter(command),
+                    "rewrite target has no executable TOML filter: {command}"
+                );
+            }
         }
     }
 }

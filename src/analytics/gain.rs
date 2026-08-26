@@ -4,7 +4,7 @@ use crate::core::display_helpers::{format_duration, print_period_table};
 use crate::core::tracking::{DayStats, MonthStats, Tracker, WeekStats};
 use crate::core::utils::{format_tokens, truncate};
 use crate::hooks::hook_check;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use chrono::Local;
 use colored::Colorize;
 use serde::Serialize;
@@ -23,6 +23,7 @@ pub fn run(
     monthly: bool,
     all: bool,
     format: &str,
+    commands: Option<&str>,
     failures: bool,
     reset: bool,
     yes: bool,
@@ -30,6 +31,7 @@ pub fn run(
 ) -> Result<()> {
     let tracker = Tracker::new().context("Failed to initialize tracking database")?;
     let project_scope = resolve_project_scope(project)?; // added: resolve project path
+    let command_limit = parse_command_limit(commands)?;
 
     if reset {
         if !yes && !confirm_reset()? {
@@ -57,6 +59,7 @@ pub fn run(
                 monthly,
                 all,
                 project_scope.as_deref(), // added: pass project scope
+                command_limit,
             );
         }
         "csv" => {
@@ -67,13 +70,14 @@ pub fn run(
                 monthly,
                 all,
                 project_scope.as_deref(), // added: pass project scope
+                command_limit,
             );
         }
         _ => {} // Continue with text format
     }
 
     let summary = tracker
-        .get_summary_filtered(project_scope.as_deref()) // changed: use filtered variant
+        .get_summary_filtered_with_command_limit(project_scope.as_deref(), command_limit)
         .context("Failed to load token savings summary from database")?;
 
     if summary.total_commands == 0 {
@@ -506,12 +510,22 @@ fn print_monthly(tracker: &Tracker, project_scope: Option<&str>) -> Result<()> {
 #[derive(Serialize)]
 struct ExportData {
     summary: ExportSummary,
+    commands: Vec<ExportCommandStats>,
     #[serde(skip_serializing_if = "Option::is_none")]
     daily: Option<Vec<DayStats>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     weekly: Option<Vec<WeekStats>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     monthly: Option<Vec<MonthStats>>,
+}
+
+#[derive(Serialize)]
+struct ExportCommandStats {
+    command: String,
+    count: usize,
+    saved_tokens: usize,
+    avg_savings_pct: f64,
+    avg_time_ms: u64,
 }
 
 #[derive(Serialize)]
@@ -532,10 +546,25 @@ fn export_json(
     monthly: bool,
     all: bool,
     project_scope: Option<&str>, // added: project scope
+    command_limit: Option<usize>,
 ) -> Result<()> {
     let summary = tracker
-        .get_summary_filtered(project_scope) // changed: use filtered variant
+        .get_summary_filtered_with_command_limit(project_scope, command_limit)
         .context("Failed to load token savings summary from database")?;
+
+    let commands = summary
+        .by_command
+        .iter()
+        .map(
+            |(command, count, saved_tokens, avg_savings_pct, avg_time_ms)| ExportCommandStats {
+                command: command.clone(),
+                count: *count,
+                saved_tokens: *saved_tokens,
+                avg_savings_pct: *avg_savings_pct,
+                avg_time_ms: *avg_time_ms,
+            },
+        )
+        .collect();
 
     let export = ExportData {
         summary: ExportSummary {
@@ -547,6 +576,7 @@ fn export_json(
             total_time_ms: summary.total_time_ms,
             avg_time_ms: summary.avg_time_ms,
         },
+        commands,
         daily: if all || daily {
             Some(tracker.get_all_days_filtered(project_scope)?) // changed: use filtered
         } else {
@@ -577,7 +607,23 @@ fn export_csv(
     monthly: bool,
     all: bool,
     project_scope: Option<&str>, // added: project scope
+    command_limit: Option<usize>,
 ) -> Result<()> {
+    let summary = tracker.get_summary_filtered_with_command_limit(project_scope, command_limit)?;
+    println!("# Command Data");
+    println!("command,count,saved_tokens,avg_savings_pct,avg_time_ms");
+    for (command, count, saved_tokens, avg_savings_pct, avg_time_ms) in summary.by_command {
+        println!(
+            "{},{},{},{:.2},{}",
+            csv_escape(&command),
+            count,
+            saved_tokens,
+            avg_savings_pct,
+            avg_time_ms
+        );
+    }
+    println!();
+
     if all || daily {
         let days = tracker.get_all_days_filtered(project_scope)?; // changed: use filtered
         println!("# Daily Data");
@@ -641,6 +687,30 @@ fn export_csv(
     }
 
     Ok(())
+}
+
+fn parse_command_limit(value: Option<&str>) -> Result<Option<usize>> {
+    match value {
+        None => Ok(Some(10)),
+        Some(value) if value.eq_ignore_ascii_case("all") => Ok(None),
+        Some(value) => {
+            let limit = value
+                .parse::<usize>()
+                .with_context(|| format!("invalid --commands value {value:?}; use N or all"))?;
+            if limit == 0 {
+                bail!("--commands must be greater than zero or 'all'");
+            }
+            Ok(Some(limit))
+        }
+    }
+}
+
+fn csv_escape(value: &str) -> String {
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
 }
 
 /// Lightweight scan of recent Claude Code sessions for RTK_DISABLED= overuse.
@@ -759,4 +829,28 @@ fn confirm_reset() -> Result<bool> {
         .context("Failed to read confirmation")?;
 
     Ok(matches!(line.trim().to_lowercase().as_str(), "y" | "yes"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_limit_defaults_to_ten_and_accepts_all() {
+        assert_eq!(parse_command_limit(None).unwrap(), Some(10));
+        assert_eq!(parse_command_limit(Some("3")).unwrap(), Some(3));
+        assert_eq!(parse_command_limit(Some("all")).unwrap(), None);
+        assert!(parse_command_limit(Some("0")).is_err());
+        assert!(parse_command_limit(Some("many")).is_err());
+    }
+
+    #[test]
+    fn csv_escape_quotes_command_fields() {
+        assert_eq!(csv_escape("rtk git status"), "rtk git status");
+        assert_eq!(csv_escape("rtk test a,b"), "\"rtk test a,b\"");
+        assert_eq!(
+            csv_escape("rtk test \"quoted\""),
+            "\"rtk test \"\"quoted\"\"\""
+        );
+    }
 }

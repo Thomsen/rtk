@@ -33,6 +33,9 @@ pub fn print_with_hint(
 #[derive(Default)]
 pub struct RunOptions<'a> {
     pub tee_label: Option<&'a str>,
+    /// Logical RTK subcommand used for analytics when it differs from the
+    /// executable name (for example, `gradlew` vs `./gradlew`).
+    pub rtk_command_name: Option<&'a str>,
     pub filter_stdout_only: bool,
     pub skip_filter_on_failure: bool,
     pub no_trailing_newline: bool,
@@ -59,6 +62,11 @@ impl<'a> RunOptions<'a> {
 
     pub fn tee(mut self, label: &'a str) -> Self {
         self.tee_label = Some(label);
+        self
+    }
+
+    pub fn rtk_command(mut self, name: &'a str) -> Self {
+        self.rtk_command_name = Some(name);
         self
     }
 
@@ -91,7 +99,8 @@ pub enum RunMode<'a> {
 fn run_captured_filter<F>(
     mut cmd: Command,
     tool_name: &str,
-    cmd_label: &str,
+    original_cmd_label: &str,
+    rtk_cmd_label: &str,
     filter_fn: F,
     opts: RunOptions<'_>,
     timer: tracking::TimedExecution,
@@ -118,7 +127,7 @@ where
         if !result.raw_stderr.trim().is_empty() {
             eprint!("{}", result.raw_stderr);
         }
-        timer.track(cmd_label, &format!("rtk {}", cmd_label), raw, raw);
+        timer.track(original_cmd_label, rtk_cmd_label, raw, raw);
         return Ok(exit_code);
     }
 
@@ -147,13 +156,15 @@ where
         guarded
     };
 
-    timer.track(
-        cmd_label,
-        &format!("rtk {}", cmd_label),
-        raw_for_tracking,
-        &shown,
-    );
+    timer.track(original_cmd_label, rtk_cmd_label, raw_for_tracking, &shown);
     Ok(exit_code)
+}
+
+fn tracking_labels(tool_name: &str, args_display: &str, opts: &RunOptions<'_>) -> (String, String) {
+    let original_cmd = format!("{} {}", tool_name, args_display);
+    let rtk_command_name = opts.rtk_command_name.unwrap_or(tool_name);
+    let rtk_cmd = format!("rtk {} {}", rtk_command_name, args_display);
+    (original_cmd, rtk_cmd)
 }
 
 pub fn run(
@@ -164,13 +175,14 @@ pub fn run(
     opts: RunOptions<'_>,
 ) -> Result<i32> {
     let timer = tracking::TimedExecution::start();
-    let cmd_label = format!("{} {}", tool_name, args_display);
+    let (original_cmd_label, rtk_cmd_label) = tracking_labels(tool_name, args_display, &opts);
 
     match mode {
         RunMode::Filtered(filter_fn) => run_captured_filter(
             cmd,
             tool_name,
-            &cmd_label,
+            &original_cmd_label,
+            &rtk_cmd_label,
             move |text, _| filter_fn(text),
             opts,
             timer,
@@ -178,7 +190,8 @@ pub fn run(
         RunMode::FilteredWithExit(filter_fn) => run_captured_filter(
             cmd,
             tool_name,
-            &cmd_label,
+            &original_cmd_label,
+            &rtk_cmd_label,
             move |text, exit_code| filter_fn(text, exit_code),
             opts,
             timer,
@@ -197,8 +210,8 @@ pub fn run(
             }
 
             timer.track(
-                &cmd_label,
-                &format!("rtk {}", cmd_label),
+                &original_cmd_label,
+                &rtk_cmd_label,
                 &result.raw,
                 &result.filtered,
             );
@@ -209,7 +222,10 @@ pub fn run(
                 stream::run_streaming(&mut cmd, StdinMode::Inherit, FilterMode::Passthrough)
                     .with_context(|| format!("Failed to run {}", tool_name))?;
 
-            timer.track_passthrough(&cmd_label, &format!("rtk {} (passthrough)", cmd_label));
+            timer.track_passthrough(
+                &original_cmd_label,
+                &format!("{} (passthrough)", rtk_cmd_label),
+            );
             Ok(result.exit_code)
         }
     }
@@ -254,6 +270,15 @@ where
 }
 
 pub fn run_passthrough(tool: &str, args: &[std::ffi::OsString], verbose: u8) -> Result<i32> {
+    run_passthrough_as(tool, tool, args, verbose)
+}
+
+pub fn run_passthrough_as(
+    tool: &str,
+    rtk_command_name: &str,
+    args: &[std::ffi::OsString],
+    verbose: u8,
+) -> Result<i32> {
     if verbose > 0 {
         eprintln!("{} passthrough: {:?}", tool, args);
     }
@@ -265,7 +290,7 @@ pub fn run_passthrough(tool: &str, args: &[std::ffi::OsString], verbose: u8) -> 
         tool,
         &args_str,
         RunMode::Passthrough,
-        RunOptions::default(),
+        RunOptions::default().rtk_command(rtk_command_name),
     )
 }
 
@@ -283,4 +308,27 @@ pub fn run_streamed(
         RunMode::Streamed(filter),
         opts,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tracking_labels_use_logical_rtk_subcommand_for_wrappers() {
+        let opts = RunOptions::default().rtk_command("gradlew");
+        let (original, rtk) = tracking_labels("./gradlew", "test --offline", &opts);
+
+        assert_eq!(original, "./gradlew test --offline");
+        assert_eq!(rtk, "rtk gradlew test --offline");
+    }
+
+    #[test]
+    fn tracking_labels_default_to_executable_name() {
+        let opts = RunOptions::default();
+        let (original, rtk) = tracking_labels("cargo", "test", &opts);
+
+        assert_eq!(original, "cargo test");
+        assert_eq!(rtk, "rtk cargo test");
+    }
 }

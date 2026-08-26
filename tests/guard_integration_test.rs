@@ -3,8 +3,10 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
+mod common;
+
 fn rtk_stdin(args: &[&str], input: &str) -> String {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_rtk"))
+    let mut child = common::rtk_command()
         .env("LC_ALL", "C")
         .args(args)
         .stdin(Stdio::piped())
@@ -58,7 +60,7 @@ fn guard_does_not_block_real_compression() {
 }
 
 fn rtk_output_in_dir(dir: &std::path::Path, args: &[&str]) -> (String, String, Option<i32>) {
-    let out = Command::new(env!("CARGO_BIN_EXE_rtk"))
+    let out = common::rtk_command()
         .env("LC_ALL", "C")
         .args(args)
         .current_dir(dir)
@@ -74,6 +76,34 @@ fn rtk_output_in_dir(dir: &std::path::Path, args: &[&str]) -> (String, String, O
 fn rtk_in_dir(dir: &std::path::Path, args: &[&str]) -> (String, Option<i32>) {
     let (stdout, _, code) = rtk_output_in_dir(dir, args);
     (stdout, code)
+}
+
+#[test]
+fn failed_git_command_tracks_combined_output_without_negative_savings() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = dir.path().join("history.db");
+    let output = common::rtk_command()
+        .env("RTK_DB_PATH", &db)
+        .current_dir(dir.path())
+        .args(["git", "worktree"])
+        .output()
+        .expect("rtk git worktree");
+    assert!(!output.status.success());
+
+    let conn = rusqlite::Connection::open(db).expect("open tracking DB");
+    let (input, output): (i64, i64) = conn
+        .query_row(
+            "SELECT input_tokens, output_tokens FROM commands WHERE rtk_cmd = 'rtk git worktree'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("tracked failure");
+
+    assert!(input > 0, "stderr must be counted as original output");
+    assert!(
+        output <= input,
+        "failed command cannot report negative savings"
+    );
 }
 
 fn rg_available() -> bool {

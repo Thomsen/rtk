@@ -124,7 +124,7 @@ pub fn run(args: &[String], verbose: u8) -> Result<i32> {
         .any(|a| a == "--stacktrace" || a == "--info" || a == "--debug" || a == "--full-stacktrace")
     {
         let osargs: Vec<OsString> = args.iter().map(OsString::from).collect();
-        return runner::run_passthrough(gradlew_binary(), &osargs, verbose);
+        return runner::run_passthrough_as(gradlew_binary(), "gradlew", &osargs, verbose);
     }
 
     let cmd = new_gradle_command(args);
@@ -137,39 +137,39 @@ pub fn run(args: &[String], verbose: u8) -> Result<i32> {
             tool,
             &args_display,
             Box::new(BuildLineFilter),
-            RunOptions::with_tee("gradlew_build"),
+            RunOptions::with_tee("gradlew_build").rtk_command("gradlew"),
         ),
         GradlewTask::Test => runner::run_filtered(
             cmd,
             tool,
             &args_display,
             filter_test,
-            RunOptions::with_tee("gradlew_test"),
+            RunOptions::with_tee("gradlew_test").rtk_command("gradlew"),
         ),
         GradlewTask::ConnectedTest => runner::run_filtered(
             cmd,
             tool,
             &args_display,
             filter_connected,
-            RunOptions::with_tee("gradlew_connected"),
+            RunOptions::with_tee("gradlew_connected").rtk_command("gradlew"),
         ),
         GradlewTask::Lint => runner::run_filtered(
             cmd,
             tool,
             &args_display,
             filter_lint,
-            RunOptions::with_tee("gradlew_lint"),
+            RunOptions::with_tee("gradlew_lint").rtk_command("gradlew"),
         ),
         GradlewTask::Dependencies => runner::run_filtered(
             cmd,
             tool,
             &args_display,
             filter_dependencies,
-            RunOptions::with_tee("gradlew_deps"),
+            RunOptions::with_tee("gradlew_deps").rtk_command("gradlew"),
         ),
         GradlewTask::Other => {
             let osargs: Vec<OsString> = args.iter().map(OsString::from).collect();
-            runner::run_passthrough(gradlew_binary(), &osargs, verbose)
+            runner::run_passthrough_as(gradlew_binary(), "gradlew", &osargs, verbose)
         }
     }
 }

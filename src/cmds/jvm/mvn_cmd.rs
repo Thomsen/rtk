@@ -916,7 +916,7 @@ pub fn run(args: &[String], verbose: u8) -> Result<i32> {
         .any(|a| matches!(a.as_str(), "-X" | "--debug" | "-e" | "--errors"))
     {
         let osargs: Vec<OsString> = args.iter().map(OsString::from).collect();
-        return runner::run_passthrough(mvn_binary(), &osargs, verbose);
+        return runner::run_passthrough_as(mvn_binary(), "mvn", &osargs, verbose);
     }
 
     let tool = mvn_binary();
@@ -929,14 +929,14 @@ pub fn run(args: &[String], verbose: u8) -> Result<i32> {
         let phase = detect_phase(args);
         if matches!(phase, MvnPhase::Passthrough) {
             let osargs: Vec<OsString> = args.iter().map(OsString::from).collect();
-            return runner::run_passthrough(tool, &osargs, verbose);
+            return runner::run_passthrough_as(tool, "mvn", &osargs, verbose);
         }
         return runner::run_filtered(
             new_mvn_command(args),
             tool,
             &args_display,
             filter_quiet,
-            RunOptions::with_tee("mvn_quiet"),
+            RunOptions::with_tee("mvn_quiet").rtk_command("mvn"),
         );
     }
 
@@ -948,25 +948,25 @@ pub fn run(args: &[String], verbose: u8) -> Result<i32> {
             tool,
             &args_display,
             filter_surefire,
-            RunOptions::with_tee("mvn_test"),
+            RunOptions::with_tee("mvn_test").rtk_command("mvn"),
         ),
         MvnPhase::Compile => runner::run_filtered(
             new_mvn_command(args),
             tool,
             &args_display,
             filter_compile,
-            RunOptions::with_tee("mvn_compile"),
+            RunOptions::with_tee("mvn_compile").rtk_command("mvn"),
         ),
         MvnPhase::Package => runner::run_filtered(
             new_mvn_command(args),
             tool,
             &args_display,
             filter_package,
-            RunOptions::with_tee("mvn_package"),
+            RunOptions::with_tee("mvn_package").rtk_command("mvn"),
         ),
         MvnPhase::Passthrough => {
             let osargs: Vec<OsString> = args.iter().map(OsString::from).collect();
-            runner::run_passthrough(tool, &osargs, verbose)
+            runner::run_passthrough_as(tool, "mvn", &osargs, verbose)
         }
     }
 }
@@ -2113,6 +2113,5 @@ mod tests {
         );
     }
 }
-
 
 

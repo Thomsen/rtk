@@ -450,6 +450,9 @@ enum Commands {
         /// Output format: text, json, csv
         #[arg(short, long, default_value = "text")]
         format: String,
+        /// Command rows to show/export: a positive number or "all"
+        #[arg(long, value_name = "N|all")]
+        commands: Option<String>,
         /// Show parse failure log (commands that fell back to raw execution)
         #[arg(short = 'F', long)]
         failures: bool,
@@ -1385,11 +1388,10 @@ fn run_fallback(parse_error: clap::Error) -> Result<i32> {
 
                 timer.track(
                     &raw_command,
-                    &format!("rtk:toml {}", raw_command),
+                    &format!("rtk {}", raw_command),
                     &combined_raw,
                     &shown,
                 );
-                core::tracking::record_parse_failure_silent(&raw_command, &error_message, true);
 
                 Ok(exit_code)
             }
@@ -2150,6 +2152,7 @@ fn run_cli() -> Result<i32> {
             monthly,
             all,
             format,
+            commands,
             failures,
             reset,
             yes,
@@ -2165,6 +2168,7 @@ fn run_cli() -> Result<i32> {
                 monthly,
                 all,
                 &format,
+                commands.as_deref(),
                 failures,
                 reset,
                 yes,
