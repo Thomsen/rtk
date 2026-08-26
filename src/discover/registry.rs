@@ -5809,7 +5809,6 @@ mod tests {
     // --- Gradle ---
 
     #[test]
-    #[test]
     fn test_classify_gradlew() {
         assert!(matches!(
             classify_command("./gradlew assembleDebug"),
@@ -7606,19 +7605,6 @@ mod tests {
     // --- gradle / gradlew ---
 
     #[test]
-    fn test_classify_gradle() {
-        assert_eq!(
-            classify_command("gradle build"),
-            Classification::Supported {
-                rtk_equivalent: "rtk gradlew",
-                category: "Build",
-                estimated_savings_pct: 75.0,
-                status: RtkStatus::Existing,
-            }
-        );
-    }
-
-    #[test]
     fn test_path_qualified_liquibase_is_not_rewritten() {
         // #3757 originally requested path-qualified rewriting, but registry
         // normalization currently classifies the basename without rewriting
@@ -7626,19 +7612,6 @@ mod tests {
         assert_eq!(
             rewrite_command_no_prefixes("/usr/bin/liquibase update", &[]),
             None,
-        );
-    }
-
-    #[test]
-    fn test_classify_gradlew() {
-        assert_eq!(
-            classify_command("gradlew assembleDebug"),
-            Classification::Supported {
-                rtk_equivalent: "rtk gradlew",
-                category: "Build",
-                estimated_savings_pct: 75.0,
-                status: RtkStatus::Existing,
-            }
         );
     }
 
@@ -7657,35 +7630,19 @@ mod tests {
     }
 
     #[test]
-    fn test_rewrite_gradle() {
-        assert_eq!(
-            rewrite_command("gradle build", &[]),
-            Some("rtk gradlew build".into())
-        );
-    }
-
-    #[test]
-    fn test_rewrite_gradlew() {
-        assert_eq!(
-            rewrite_command("gradlew assembleDebug", &[]),
-            Some("rtk gradlew assembleDebug".into())
-        );
-    }
-
-    #[test]
     fn test_rewrite_dot_slash_gradlew() {
-        // Path prefix preserved: ./gradlew → rtk ./gradlew (not rtk gradlew ./gradlew)
+        // The native gradlew subcommand preserves the local wrapper semantics.
         assert_eq!(
-            rewrite_command("./gradlew assembleOfficialDebug", &[]),
-            Some("rtk ./gradlew assembleOfficialDebug".into())
+            rewrite_command_no_prefixes("./gradlew assembleOfficialDebug", &[]),
+            Some("rtk gradlew assembleOfficialDebug".into())
         );
     }
 
     #[test]
     fn test_rewrite_gradlew_tasks() {
         assert_eq!(
-            rewrite_command("./gradlew tasks --group build", &[]),
-            Some("rtk ./gradlew tasks --group build".into())
+            rewrite_command_no_prefixes("./gradlew tasks --group build", &[]),
+            Some("rtk gradlew tasks --group build".into())
         );
     }
 }

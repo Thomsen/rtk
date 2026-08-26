@@ -112,16 +112,19 @@ pub const DEV_RULES: &[RtkRule] = &[
 #[cfg(test)]
 mod tests {
     use super::DEV_RULES;
-    use crate::discover::registry::{classify_command, rewrite_command, Classification};
+    use crate::core::toml_filter::command_matches_filter;
+    use crate::discover::registry::{Classification, classify_command, rewrite_command};
     use crate::discover::rules::RULES;
 
     #[test]
     fn dev_rule_commands_are_unique() {
         for (index, rule) in DEV_RULES.iter().enumerate() {
             assert!(!RULES.iter().any(|base| base.rtk_cmd == rule.rtk_cmd));
-            assert!(!DEV_RULES[index + 1..]
-                .iter()
-                .any(|other| other.rtk_cmd == rule.rtk_cmd));
+            assert!(
+                !DEV_RULES[index + 1..]
+                    .iter()
+                    .any(|other| other.rtk_cmd == rule.rtk_cmd)
+            );
         }
     }
 
@@ -161,6 +164,12 @@ mod tests {
                 rewrite_command(command, &[], &[]).as_deref(),
                 Some(expected)
             );
+            if command != "fvm flavor ohos" {
+                assert!(
+                    command_matches_filter(command),
+                    "rewrite target has no executable TOML filter: {command}"
+                );
+            }
         }
     }
 }

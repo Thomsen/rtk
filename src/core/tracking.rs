@@ -63,7 +63,9 @@ fn project_filter_params(project_path: Option<&str>) -> (Option<String>, Option<
     }
 }
 
-use super::constants::{DEFAULT_HISTORY_DAYS, HISTORY_DB, RTK_DATA_DIR};
+use super::constants::DEFAULT_HISTORY_DAYS;
+#[cfg(not(test))]
+use super::constants::{HISTORY_DB, RTK_DATA_DIR};
 
 /// Main tracking interface for recording and querying command history.
 ///
@@ -203,7 +205,7 @@ pub struct GainSummary {
     pub total_time_ms: u64,
     /// Average execution time per command (milliseconds)
     pub avg_time_ms: u64,
-    /// Top 10 commands by tokens saved: (cmd, count, saved, weighted_rate, avg_time_ms)
+    /// Commands by tokens saved: (cmd, count, saved, weighted_rate, avg_time_ms)
     pub by_command: Vec<(String, usize, usize, f64, u64)>,
     /// Last 30 days of activity: (date, saved_tokens)
     pub by_day: Vec<(String, usize)>,
@@ -917,6 +919,16 @@ impl Tracker {
     /// When `project_path` is `Some`, matches the exact working directory
     /// or any subdirectory (prefix match with path separator).
     pub fn get_summary_filtered(&self, project_path: Option<&str>) -> Result<GainSummary> {
+        self.get_summary_filtered_with_command_limit(project_path, Some(10))
+    }
+
+    /// Get summary statistics with a configurable per-command row limit.
+    /// `None` returns every distinct command line.
+    pub fn get_summary_filtered_with_command_limit(
+        &self,
+        project_path: Option<&str>,
+        command_limit: Option<usize>,
+    ) -> Result<GainSummary> {
         let (project_exact, project_glob) = project_filter_params(project_path); // added
         let mut total_commands = 0usize;
         let mut total_input = 0usize;
@@ -963,7 +975,7 @@ impl Tracker {
             0
         };
 
-        let by_command = self.get_by_command(project_path)?; // added: pass project filter
+        let by_command = self.get_by_command(project_path, command_limit)?;
         let by_day = self.get_by_day(project_path)?; // added: pass project filter
 
         Ok(GainSummary {
@@ -982,6 +994,7 @@ impl Tracker {
     fn get_by_command(
         &self,
         project_path: Option<&str>, // added
+        limit: Option<usize>,
     ) -> Result<Vec<CommandStats>> {
         let (project_exact, project_glob) = project_filter_params(project_path); // added
         let mut stmt = self.conn.prepare(
@@ -992,10 +1005,11 @@ impl Tracker {
              WHERE (?1 IS NULL OR project_path = ?1 OR project_path GLOB ?2)
              GROUP BY rtk_cmd
              ORDER BY SUM(saved_tokens) DESC
-             LIMIT 10", // added: project filter in WHERE
+             LIMIT ?3",
         )?;
 
-        let rows = stmt.query_map(params![project_exact, project_glob], |row| {
+        let sql_limit = limit.map(|value| value as i64).unwrap_or(-1);
+        let rows = stmt.query_map(params![project_exact, project_glob, sql_limit], |row| {
             // added: params
             Ok((
                 row.get::<_, String>(0)?,
@@ -1626,6 +1640,18 @@ pub(crate) fn get_db_path() -> Result<PathBuf> {
         return Ok(PathBuf::from(custom_path));
     }
 
+    // Unit tests must never write synthetic command records to the user's
+    // production history database.
+    #[cfg(test)]
+    {
+        static TEST_DB_PATH: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        Ok(TEST_DB_PATH
+            .get_or_init(|| {
+                std::env::temp_dir().join(format!("rtk-unit-test-{}.db", std::process::id()))
+            })
+            .clone())
+    }
+
     // Priority 2: Configuration file. Reads the process-wide cached config (see
     // `config::cached_config`), not a fresh `Config::load()`: this runs inside
     // `Tracker::new()`, which `log_hook_decision` now calls on every single
@@ -1633,6 +1659,7 @@ pub(crate) fn get_db_path() -> Result<PathBuf> {
     // same hook invocation, via `hooks::decision::decide`) already reads config too, so
     // without caching that's two full disk-read-plus-TOML-parse round trips per
     // Bash tool call instead of one.
+    #[cfg(not(test))]
     if let Some(db_path) = crate::core::config::cached_config()
         .tracking
         .database_path
@@ -1642,8 +1669,11 @@ pub(crate) fn get_db_path() -> Result<PathBuf> {
     }
 
     // Priority 3: Default platform-specific location
-    let data_dir = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    Ok(data_dir.join(RTK_DATA_DIR).join(HISTORY_DB))
+    #[cfg(not(test))]
+    {
+        let data_dir = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
+        Ok(data_dir.join(RTK_DATA_DIR).join(HISTORY_DB))
+    }
 }
 
 /// Whether to gate schema migrations behind `user_version` (the hot-path
@@ -2321,8 +2351,8 @@ mod tests {
     }
 
     // 7. get_db_path respects environment variable RTK_DB_PATH
-    // 8. get_db_path falls back to default when no custom config
-    // Combined into one test so the set and unset cases cannot interleave.
+    // 8. get_db_path falls back to an isolated test DB when no override exists
+    // Combined into one test to avoid env var race between parallel tests
     #[test]
     fn test_db_path_env_and_default() {
         use std::env;
@@ -2336,10 +2366,11 @@ mod tests {
 
         temp_env::with_var_unset("RTK_DB_PATH", || {
             let db_path = get_db_path().expect("Failed to get db path");
+            assert!(db_path.starts_with(env::temp_dir()));
             assert!(
-                db_path.ends_with("rtk/history.db"),
-                "expected default path ending with rtk/history.db, got: {}",
-                db_path.display()
+                db_path
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with("rtk-unit-test-"))
             );
         });
     }
@@ -2577,6 +2608,27 @@ mod tests {
             let mode = std::fs::metadata(p).expect("metadata").permissions().mode() & 0o777;
             assert_eq!(mode, 0o600, "expected 0600 on {}", p.display());
         }
+    }
+
+    #[test]
+    fn test_summary_command_limit_can_return_top_n_or_all() {
+        let tracker = Tracker::new_in_memory().expect("in-memory tracker");
+        for (command, saved) in [("rtk a", 10), ("rtk b", 20), ("rtk c", 30)] {
+            tracker
+                .record(command, command, saved, 0, 1)
+                .expect("record command");
+        }
+
+        let top_two = tracker
+            .get_summary_filtered_with_command_limit(None, Some(2))
+            .expect("top two");
+        let all = tracker
+            .get_summary_filtered_with_command_limit(None, None)
+            .expect("all commands");
+
+        assert_eq!(top_two.by_command.len(), 2);
+        assert_eq!(top_two.by_command[0].0, "rtk c");
+        assert_eq!(all.by_command.len(), 3);
     }
 
     // rtk-ai/rtk#3148: ground-truth hook-decision logging, so `discover` can join
@@ -2831,7 +2883,7 @@ mod tests {
             .expect("Failed to insert large invocation");
 
         let by_cmd = tracker
-            .get_by_command(Some(project))
+            .get_by_command(Some(project), Some(10))
             .expect("Failed to get by_command stats");
 
         let entry = by_cmd
@@ -2867,7 +2919,9 @@ mod tests {
             .record("grep tiny", "rtk grep", 100, 90, 5)
             .expect("record tiny");
 
-        let by_command = tracker.get_by_command(None).expect("get_by_command");
+        let by_command = tracker
+            .get_by_command(None, Some(10))
+            .expect("get_by_command");
 
         let (_cmd, count, saved, pct, _avg_time) = by_command
             .iter()

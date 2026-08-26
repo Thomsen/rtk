@@ -1838,13 +1838,14 @@ pub fn run_daemon(args: &[String], verbose: u8) -> Result<i32> {
 }
 
 fn run_tool(args: &[String], daemon: bool, verbose: u8) -> Result<i32> {
+    let rtk_command_name = if daemon { "mvnd" } else { "mvn" };
     // Verbose flags bypass filtering — user wants full output.
     if args
         .iter()
         .any(|a| matches!(a.as_str(), "-X" | "--debug" | "-e" | "--errors"))
     {
         let osargs: Vec<OsString> = args.iter().map(OsString::from).collect();
-        return runner::run_passthrough(mvn_binary(daemon), &osargs, verbose);
+        return runner::run_passthrough_as(mvn_binary(daemon), rtk_command_name, &osargs, verbose);
     }
 
     let tool = mvn_binary(daemon);
@@ -1857,14 +1858,14 @@ fn run_tool(args: &[String], daemon: bool, verbose: u8) -> Result<i32> {
         let phase = detect_phase(args);
         if matches!(phase, MvnPhase::Passthrough) {
             let osargs: Vec<OsString> = args.iter().map(OsString::from).collect();
-            return runner::run_passthrough(tool, &osargs, verbose);
+            return runner::run_passthrough_as(tool, rtk_command_name, &osargs, verbose);
         }
         return runner::run_filtered(
             new_mvn_command(args, daemon),
             tool,
             &args_display,
             |raw: &str| filter_quiet(raw, daemon),
-            RunOptions::with_tee("mvn_quiet"),
+            RunOptions::with_tee("mvn_quiet").rtk_command(rtk_command_name),
         );
     }
 
@@ -1876,25 +1877,25 @@ fn run_tool(args: &[String], daemon: bool, verbose: u8) -> Result<i32> {
             tool,
             &args_display,
             move |raw: &str| filter_surefire(raw, daemon),
-            RunOptions::with_tee("mvn_test"),
+            RunOptions::with_tee("mvn_test").rtk_command(rtk_command_name),
         ),
         MvnPhase::Compile => runner::run_filtered(
             new_mvn_command(args, daemon),
             tool,
             &args_display,
             move |raw: &str| filter_compile(raw, daemon),
-            RunOptions::with_tee("mvn_compile"),
+            RunOptions::with_tee("mvn_compile").rtk_command(rtk_command_name),
         ),
         MvnPhase::Package => runner::run_filtered(
             new_mvn_command(args, daemon),
             tool,
             &args_display,
             move |raw: &str| filter_package(raw, daemon),
-            RunOptions::with_tee("mvn_package"),
+            RunOptions::with_tee("mvn_package").rtk_command(rtk_command_name),
         ),
         MvnPhase::Passthrough => {
             let osargs: Vec<OsString> = args.iter().map(OsString::from).collect();
-            runner::run_passthrough(tool, &osargs, verbose)
+            runner::run_passthrough_as(tool, rtk_command_name, &osargs, verbose)
         }
     }
 }

@@ -44,6 +44,16 @@ fn git_cmd(global_args: &[String]) -> Command {
     cmd
 }
 
+fn track_failed_capture(
+    timer: &tracking::TimedExecution,
+    original_cmd: &str,
+    rtk_cmd: &str,
+    result: &CaptureResult,
+) {
+    let raw = result.combined();
+    timer.track(original_cmd, rtk_cmd, &raw, &raw);
+}
+
 /// Create a git Command for internal parsing that must be locale-stable.
 ///
 /// We only use this for non-user-facing parses where RTK depends on git's
@@ -305,11 +315,11 @@ fn run_diff(
             if !result.stderr.trim().is_empty() {
                 eprintln!("{}", result.stderr.trim());
             }
-            timer.track(
+            track_failed_capture(
+                &timer,
                 &format!("git diff {}", args.join(" ")),
                 &format!("rtk git diff {} (passthrough)", args.join(" ")),
-                &result.stdout,
-                &result.stdout,
+                &result,
             );
             return Ok(result.exit_code);
         }
@@ -345,11 +355,11 @@ fn run_diff(
         if !diff_result.stderr.trim().is_empty() {
             eprint!("{}", diff_result.stderr);
         }
-        timer.track(
+        track_failed_capture(
+            &timer,
             &format!("git diff {}", args.join(" ")),
             &format!("rtk git diff {}", args.join(" ")),
-            &diff_result.stdout,
-            &diff_result.stdout,
+            &diff_result,
         );
         return Ok(diff_result.exit_code);
     }
@@ -496,6 +506,12 @@ fn run_show(
             if !result.stderr.trim().is_empty() {
                 eprintln!("{}", result.stderr.trim());
             }
+            track_failed_capture(
+                &timer,
+                &format!("git show {}", args.join(" ")),
+                &format!("rtk git show {} (passthrough)", args.join(" ")),
+                &result,
+            );
             return Ok(result.exit_code);
         }
 
@@ -662,6 +678,12 @@ fn run_show(
     let summary_result = exec_capture(&mut summary_cmd).context("Failed to run git show")?;
     if !summary_result.success() {
         eprintln!("{}", summary_result.stderr);
+        track_failed_capture(
+            &timer,
+            &format!("git show {}", args.join(" ")),
+            &format!("rtk git show {}", args.join(" ")),
+            &summary_result,
+        );
         return Ok(summary_result.exit_code);
     }
     let mut printed = summary_result.stdout.trim().to_string();
@@ -700,6 +722,16 @@ fn run_show(
         true,
     );
     let stat_result = exec_capture(&mut stat_cmd).context("Failed to run git show --stat")?;
+    if !stat_result.success() {
+        eprintln!("{}", stat_result.stderr);
+        track_failed_capture(
+            &timer,
+            &format!("git show {}", args.join(" ")),
+            &format!("rtk git show {}", args.join(" ")),
+            &stat_result,
+        );
+        return Ok(stat_result.exit_code);
+    }
     let stat_text = stat_result.stdout.trim();
     if !stat_text.is_empty() {
         printed.push('\n');
@@ -711,6 +743,16 @@ fn run_show(
     // `-s`/`--no-patch`, whose whole point is that there is no body to print.
     let mut diff_cmd = show_cmd(global_args, args, &tokens, &["--pretty=format:"], false);
     let diff_result = exec_capture(&mut diff_cmd).context("Failed to run git show (diff)")?;
+    if !diff_result.success() {
+        eprintln!("{}", diff_result.stderr);
+        track_failed_capture(
+            &timer,
+            &format!("git show {}", args.join(" ")),
+            &format!("rtk git show {}", args.join(" ")),
+            &diff_result,
+        );
+        return Ok(diff_result.exit_code);
+    }
     let diff_text = diff_result.stdout.trim();
 
     if !diff_text.is_empty() {
@@ -1852,6 +1894,12 @@ fn run_log(
 
     if !result.success() {
         eprintln!("{}", result.stderr);
+        track_failed_capture(
+            &timer,
+            &format!("git log {}", args.join(" ")),
+            &format!("rtk git log {}", args.join(" ")),
+            &result,
+        );
         return Ok(result.exit_code);
     }
 
@@ -2388,11 +2436,11 @@ fn run_status(args: &[String], verbose: u8, global_args: &[String]) -> Result<i3
             if !result.stderr.trim().is_empty() {
                 eprint!("{}", result.stderr);
             }
-            timer.track(
+            track_failed_capture(
+                &timer,
                 &format!("git status {}", args.join(" ")),
                 &format!("rtk git status {}", args.join(" ")),
-                &result.stdout,
-                &result.stdout,
+                &result,
             );
             return Ok(result.exit_code);
         }
@@ -2420,7 +2468,7 @@ fn run_status(args: &[String], verbose: u8, global_args: &[String]) -> Result<i3
     raw_cmd.arg("status");
     raw_cmd.args(args);
     let raw_output = exec_capture(&mut raw_cmd)
-        .map(|r| r.stdout)
+        .map(|result| result.combined())
         .unwrap_or_default();
 
     let mut cmd = build_status_command(args, global_args);
@@ -2549,6 +2597,12 @@ fn run_add(args: &[String], verbose: u8, global_args: &[String]) -> Result<i32> 
         if !result.stdout.trim().is_empty() {
             eprintln!("{}", result.stdout);
         }
+        timer.track(
+            &format!("git add {}", args.join(" ")),
+            &format!("rtk git add {}", args.join(" ")),
+            &raw_output,
+            &raw_output,
+        );
         return Ok(result.exit_code);
     }
 
@@ -3000,6 +3054,12 @@ fn run_pull(args: &[String], verbose: u8, global_args: &[String]) -> Result<i32>
         if !result.stdout.trim().is_empty() {
             eprintln!("{}", result.stdout);
         }
+        timer.track(
+            &format!("git pull {}", args.join(" ")),
+            &format!("rtk git pull {}", args.join(" ")),
+            &raw_output,
+            &raw_output,
+        );
         return Ok(result.exit_code);
     }
 
@@ -3159,11 +3219,11 @@ fn run_branch(args: &[String], verbose: u8, global_args: &[String]) -> Result<i3
         if !result.stderr.trim().is_empty() {
             eprint!("{}", result.stderr);
         }
-        timer.track(
+        track_failed_capture(
+            &timer,
             &format!("git branch {}", args.join(" ")),
             &format!("rtk git branch {}", args.join(" ")),
-            &result.stdout,
-            &result.stdout,
+            &result,
         );
         return Ok(result.exit_code);
     }
@@ -3264,6 +3324,7 @@ fn run_fetch(args: &[String], verbose: u8, global_args: &[String]) -> Result<i32
         if !result.stderr.trim().is_empty() {
             eprintln!("{}", result.stderr);
         }
+        track_failed_capture(&timer, "git fetch", "rtk git fetch", &result);
         return Ok(result.exit_code);
     }
 
@@ -3342,8 +3403,10 @@ fn run_stash(
             if result.stdout.trim().is_empty() {
                 if !result.success() && !result.stderr.trim().is_empty() {
                     eprintln!("{}", result.stderr.trim());
+                    track_failed_capture(&timer, "git stash list", "rtk git stash list", &result);
+                } else {
+                    timer.track("git stash list", "rtk git stash list", &result.stdout, "");
                 }
-                timer.track("git stash list", "rtk git stash list", &result.stdout, "");
                 return Ok(result.exit_code);
             }
 
@@ -3370,8 +3433,10 @@ fn run_stash(
             if result.stdout.trim().is_empty() {
                 if !result.success() && !result.stderr.trim().is_empty() {
                     eprintln!("{}", result.stderr.trim());
+                    track_failed_capture(&timer, "git stash show", "rtk git stash show", &result);
+                } else {
+                    timer.track("git stash show", "rtk git stash show", &result.stdout, "");
                 }
-                timer.track("git stash show", "rtk git stash show", &result.stdout, "");
                 return Ok(result.exit_code);
             }
 
@@ -3690,12 +3755,7 @@ fn run_worktree(args: &[String], verbose: u8, global_args: &[String]) -> Result<
         if !result.stderr.trim().is_empty() {
             eprintln!("{}", result.stderr);
         }
-        timer.track(
-            "git worktree list",
-            "rtk git worktree",
-            &result.stdout,
-            &result.stderr,
-        );
+        track_failed_capture(&timer, "git worktree list", "rtk git worktree", &result);
         return Ok(result.exit_code);
     }
 
